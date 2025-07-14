@@ -297,17 +297,31 @@ def load_static_data():
 # Report generation functions
 @st.cache_data
 def create_json_report(threat_model_name, architecture, dfd_elements, threats, _timestamp):
+    # For trust boundaries, since the DFD editor doesn't explicitly manage them,
+    # we can add a placeholder or a simple list of inferred boundaries.
+    # For this iteration, let's add a descriptive placeholder.
+    trust_boundaries_info = [
+        "Trust boundaries are conceptual lines that separate areas of different trust levels.",
+        "In this model, they would typically exist between:",
+        "- External Entities (e.g., User) and internal Processes (e.g., Web Server)",
+        "- Processes (e.g., Web Server) and Data Stores (e.g., Database)",
+        "Explicit definition of trust boundaries would require additional DFD editor functionality."
+    ]
+
     report = {
         "threat_model_name": threat_model_name,
-        "architecture": architecture,
-        "dfd_elements": dfd_elements,
-        "threats": threats,
-        "generated_on": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "generated_by": st.session_state.user_id if st.session_state.user_id else "Anonymous"
+        "architecture_description": architecture,
+        "dfd_diagram_elements": dfd_elements,
+        "trust_boundaries_notes": trust_boundaries_info, # Added trust boundaries
+        "identified_threats_and_mitigations": threats,
+        "report_metadata": {
+            "generated_on": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "generated_by": st.session_state.user_id if st.session_state.user_id else "Anonymous"
+        }
     }
     report_json = json.dumps(report, indent=2)
     b64 = base64.b64encode(report_json.encode()).decode()
-    return f'<a href="data:application/json;base64,{b64}" download="{threat_model_name}_report.json" class="aws-button">Download JSON Report</a>'
+    return f'<a href="data:application/json;base64,{b64}" download="{threat_model_name}_threat_model_report.json" class="aws-button">Download Comprehensive JSON Report</a>'
 
 @st.cache_data
 def create_csv_report(threat_model_name, threats, _timestamp):
@@ -522,6 +536,7 @@ def show_tutorial():
             "action": "Add a Process and a Data Flow in the DFD editor."
         },
         {
+
             "title": "Identifying Threats",
             "content": "The app uses STRIDE to suggest threats based on your DFD and architecture. For example, a database may face Information Disclosure risks like SQL injection.",
             "action": "Enter a system description (e.g., 'web app with database') and click 'Generate'."
