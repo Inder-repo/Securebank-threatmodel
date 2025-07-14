@@ -25,7 +25,7 @@ if "role" not in st.session_state:
     st.session_state.role = "admin"
 if "dfd_elements" not in st.session_state:
     st.session_state.dfd_elements = []
-if "dfd_image" not in st.session_session_state:
+if "dfd_image" not in st.session_state: # Corrected: Changed st.session_session_state to st.session_state
     st.session_state.dfd_image = None
 if "theme" not in st.session_state:
     st.session_state.theme = "light"
