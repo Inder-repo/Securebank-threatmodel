@@ -166,12 +166,27 @@ st.markdown("""
 # Firebase Initialization (Python side - to get config and pass to JS)
 if not st.session_state.firebase_initialized:
     st.session_state.app_id = globals().get('__app_id', 'default-app-id')
-    firebase_config_from_globals_raw = globals().get('__firebase_config', '{}')
-    try:
-        firebase_config_dict = json.loads(firebase_config_from_globals_raw)
-    except json.JSONDecodeError:
-        st.error("Error parsing __firebase_config. Using empty config.")
-        firebase_config_dict = {}
+    
+    # Try to load Firebase config from Streamlit secrets first
+    firebase_config_dict = {}
+    if "firebase" in st.secrets:
+        try:
+            firebase_config_dict = st.secrets["firebase"].to_dict()
+            logger.info("Firebase config loaded from Streamlit secrets.")
+        except Exception as e:
+            st.error(f"Error loading Firebase config from secrets: {e}")
+            logger.error(f"Error loading Firebase config from secrets: {e}")
+    
+    # Fallback to global variables (for Canvas environment) if secrets not found
+    if not firebase_config_dict:
+        firebase_config_from_globals_raw = globals().get('__firebase_config', '{}')
+        try:
+            firebase_config_dict = json.loads(firebase_config_from_globals_raw)
+            if firebase_config_dict:
+                logger.info("Firebase config loaded from global variables (Canvas environment).")
+        except json.JSONDecodeError:
+            st.error("Error parsing __firebase_config. Using empty config.")
+            firebase_config_dict = {}
 
     st.session_state.firebase_config_json = json.dumps(firebase_config_dict)
     st.session_state.initial_auth_token = globals().get('__initial_auth_token', None)
