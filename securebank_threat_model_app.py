@@ -9,12 +9,11 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from PIL import Image as PILImage
 import io
-# import sqlite3 # Removed: Migrating to Firestore
 import plotly.express as px
 import csv
 import streamlit.components.v1 as components
 import os
-import pandas as pd # Added: Import pandas for DataFrame functionality
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(filename="threat_modeling_app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -25,7 +24,7 @@ if "role" not in st.session_state:
     st.session_state.role = "admin"
 if "dfd_elements" not in st.session_state:
     st.session_state.dfd_elements = []
-if "dfd_image" not in st.session_state: # Corrected: Changed st.session_session_state to st.session_state
+if "dfd_image" not in st.session_state:
     st.session_state.dfd_image = None
 if "theme" not in st.session_state:
     st.session_state.theme = "light"
@@ -35,16 +34,19 @@ if "tutorial_step" not in st.session_state:
     st.session_state.tutorial_step = 0
 if "quiz_answers" not in st.session_state:
     st.session_state.quiz_answers = {}
+# Firebase related session states - these will now be effectively unused or set to default
+# All Firebase-related logic and components have been removed.
+# These session state variables are kept for compatibility but are effectively static now.
 if 'firebase_initialized' not in st.session_state:
     st.session_state.firebase_initialized = False
 if 'db' not in st.session_state:
-    st.session_state.db = None # Placeholder for Firestore DB instance
+    st.session_state.db = None
 if 'auth' not in st.session_state:
-    st.session_state.auth = None # Placeholder for Firebase Auth instance
+    st.session_state.auth = None
 if 'user_id' not in st.session_state:
-    st.session_state.user_id = None
+    st.session_state.user_id = "anonymous_user" # Default to anonymous user
 if 'app_id' not in st.session_state:
-    st.session_state.app_id = None
+    st.session_state.app_id = "default-app-id" # Default app ID
 if 'firebase_config_json' not in st.session_state:
     st.session_state.firebase_config_json = "{}"
 if 'initial_auth_token' not in st.session_state:
@@ -56,9 +58,9 @@ if 'js_load_request' not in st.session_state:
 if 'js_delete_request' not in st.session_state:
     st.session_state.js_delete_request = None
 if 'threat_model' not in st.session_state:
-    st.session_state.threat_model = {} # Initialize with empty threat model
+    st.session_state.threat_model = {}
 if 'architecture' not in st.session_state:
-    st.session_state.architecture = {'components': [], 'connections': []} # Initialize with empty architecture
+    st.session_state.architecture = {'components': [], 'connections': []}
 
 # Apply Cloudscape-inspired CSS
 st.markdown("""
@@ -163,39 +165,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# Firebase Initialization (Python side - to get config and pass to JS)
-if not st.session_state.firebase_initialized:
-    st.session_state.app_id = globals().get('__app_id', 'default-app-id')
-    
-    # Try to load Firebase config from Streamlit secrets first
-    firebase_config_dict = {}
-    if "firebase" in st.secrets:
-        try:
-            firebase_config_dict = st.secrets["firebase"].to_dict()
-            logger.info("Firebase config loaded from Streamlit secrets.")
-        except Exception as e:
-            st.error(f"Error loading Firebase config from secrets: {e}")
-            logger.error(f"Error loading Firebase config from secrets: {e}")
-    
-    # Fallback to global variables (for Canvas environment) if secrets not found
-    if not firebase_config_dict:
-        firebase_config_from_globals_raw = globals().get('__firebase_config', '{}')
-        try:
-            firebase_config_dict = json.loads(firebase_config_from_globals_raw)
-            if firebase_config_dict:
-                logger.info("Firebase config loaded from global variables (Canvas environment).")
-        except json.JSONDecodeError:
-            st.error("Error parsing __firebase_config. Using empty config.")
-            firebase_config_dict = {}
-
-    st.session_state.firebase_config_json = json.dumps(firebase_config_dict)
-    st.session_state.initial_auth_token = globals().get('__initial_auth_token', None)
-
-    if firebase_config_dict:
-        st.session_state.firebase_initialized = True
-    else:
-        st.warning("Firebase configuration not found. Persistence features will be unavailable.")
 
 # Cache static data
 @st.cache_data
@@ -609,139 +578,21 @@ def show_quiz():
             logger.info(f"Quiz completed with score: {score}/{len(questions)}")
 
 # Main app navigation
-options = ["Tutorial", "STRIDE Info", "Pre-defined Models", "Create Model", "Saved Models", "Quiz", "Logout"]
+options = ["Tutorial", "STRIDE Info", "Pre-defined Models", "Create Model", "Saved Models", "Quiz"]
 if st.session_state.role == "admin":
-    options.append("Manage Users (Admin Only)") # Placeholder for future admin features
+    options.append("Manage Users (Admin Only)")
 option = st.sidebar.radio("Navigation", options, label_visibility="collapsed")
 
-# Display User ID in sidebar if authenticated
-if st.session_state.user_id:
-    st.sidebar.markdown(f"**Logged in as:** `{st.session_state.user_id}`")
-else:
-    st.sidebar.info("Authenticating user...")
+# Display User ID in sidebar (now always anonymous_user)
+st.sidebar.markdown(f"**Logged in as:** `{st.session_state.user_id}`")
 
-# --- Firebase Communication Setup ---
-# Hidden text area to receive user_id from JavaScript
-st.markdown(
-    """
-    <style>
-    .stTextArea[data-testid="stTextArea-firebase-init-data"] {
-        display: none;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-firebase_init_data_transfer = st.text_area(
-    "firebase_init_data",
-    value=json.dumps({"user_id": st.session_state.user_id}), # Send current user_id (might be None initially)
-    height=68,
-    key="streamlit_firebase_init_data", # This key is used by JS to send data
-    help="Do not modify this field directly.",
-)
-
-# Process Firebase init data received from JavaScript
-if firebase_init_data_transfer:
-    try:
-        init_data = json.loads(firebase_init_data_transfer)
-        if init_data.get('user_id') and init_data['user_id'] != st.session_state.user_id:
-            st.session_state.user_id = init_data['user_id']
-            # We don't get the actual DB/Auth objects, but we know they are initialized on JS side
-            st.session_state.db = True 
-            st.session_state.auth = True
-            logger.info(f"User authenticated: {st.session_state.user_id}")
-            st.rerun() # Rerun to update the UI with user_id
-    except json.JSONDecodeError:
-        logger.error("Error decoding Firebase init data from JS.")
-
-# Hidden text area for JS to send save/delete confirmations or trigger loads
-st.markdown(
-    """
-    <style>
-    .stTextArea[data-testid="stTextArea-js-commands"] {
-        display: none;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-js_commands_output = st.text_area(
-    "js_commands_output",
-    value="",
-    height=68,
-    key="streamlit_js_commands",
-    help="Do not modify this field directly.",
-)
-
-# Process commands from JS
-if js_commands_output:
-    try:
-        command = json.loads(js_commands_output)
-        if command.get("action") == "model_saved":
-            st.success(f"Model '{command['model_name']}' successfully saved to cloud!")
-            logger.info(f"Model saved: {command['model_name']}")
-            st.session_state.streamlit_js_commands = "" # Clear to prevent re-processing
-            st.rerun()
-        elif command.get("action") == "model_deleted":
-            st.success(f"Model '{command['model_id']}' successfully deleted from cloud!")
-            logger.info(f"Model deleted: {command['model_id']}")
-            st.session_state.streamlit_js_commands = "" # Clear to prevent re-processing
-            st.rerun()
-        elif command.get("action") == "load_models_response":
-            # This is handled by load_models_data_transfer directly, but good for debugging
-            pass
-        elif command.get("action") == "error":
-            st.error(f"JS Error: {command.get('message', 'Unknown error')}")
-            logger.error(f"JS Error: {command.get('message', 'Unknown error')}")
-            st.session_state.streamlit_js_commands = ""
-        st.session_state.streamlit_js_commands = "" # Ensure it's cleared after processing
-    except json.JSONDecodeError:
-        logger.error("Error decoding command from JS.")
-        st.error("Error processing JS command.")
-
-# Hidden text area to send commands to JavaScript (e.g., save, load, delete requests)
-st.markdown(
-    """
-    <style>
-    .stTextArea[data-testid="stTextArea-js-requests"] {
-        display: none;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-js_request_data = {}
-if st.session_state.get('js_save_request'):
-    js_request_data['save'] = st.session_state.js_save_request
-    st.session_state.js_save_request = None # Clear request after sending
-if st.session_state.get('js_load_request'):
-    js_request_data['load'] = True
-    st.session_state.js_load_request = False # Clear request after sending
-if st.session_state.get('js_delete_request'):
-    js_request_data['delete'] = st.session_state.js_delete_request
-    st.session_state.js_delete_request = None # Clear request after sending
-
-st.text_area(
-    "js_requests_input",
-    value=json.dumps(js_request_data),
-    height=68,
-    key="streamlit_js_requests",
-    help="Do not modify this field directly.",
-)
-# --- End Firebase Communication Setup ---
+# Removed Firebase Communication Setup related st.text_area widgets
 
 if option == "Tutorial":
     show_tutorial()
 
 elif option == "STRIDE Info":
     show_stride_info()
-
-elif option == "Logout":
-    st.session_state.clear()
-    st.session_state.role = "admin"
-    st.session_state.tutorial_step = 0
-    logger.info("User logged out")
-    st.rerun()
 
 elif option == "Pre-defined Models":
     st.markdown('<h2 style="color: #0f1a44;">Pre-defined Threat Models</h2>', unsafe_allow_html=True)
@@ -756,22 +607,12 @@ elif option == "Pre-defined Models":
             ])
             st.plotly_chart(create_risk_chart(model["threats"], datetime.now().timestamp()))
             
-            # Use the DFD elements from the pre-defined model to generate a temporary image for PDF
-            # Note: This is a simplification. A full DFD rendering would require the JS component.
-            # For demonstration, we'll use a placeholder or assume the DFD image can be generated.
-            # For this context, we'll pass the DFD elements to the PDF function, but the image
-            # itself would need to be generated by the JS DFD editor.
-            # Since the JS DFD editor is not part of this Python file, we can't generate the image directly.
-            # We'll pass `None` for the image for pre-defined models, or use a dummy image if available.
-            
             col1, col2, col3 = st.columns([1, 1, 1])
             with col1:
                 st.markdown(create_json_report(model["name"], model["architecture"], model["dfd_elements"], model["threats"], datetime.now().timestamp()), unsafe_allow_html=True)
             with col2:
                 st.markdown(create_csv_report(model["name"], model["threats"], datetime.now().timestamp()), unsafe_allow_html=True)
             with col3:
-                # For pre-defined models, dfd_image is not readily available from the Python side
-                # If a static image for each pre-defined model existed, it could be passed here.
                 st.markdown(create_pdf_report(model["name"], model["architecture"], model["dfd_elements"], model["threats"], None, datetime.now().timestamp()), unsafe_allow_html=True)
 
 elif option == "Create Model":
@@ -793,13 +634,12 @@ elif option == "Create Model":
                 st.rerun() # Rerun to update DFD editor with new elements
 
     # DFD editor HTML content
-    # Read the HTML file and replace placeholders
-    dfd_editor_html_content = "" # Initialize to empty string
+    dfd_editor_html_content = ""
     try:
         with open("dfd_editor.html", "r") as f:
             dfd_editor_html_template = f.read()
 
-        # Replace placeholders with actual values
+        # Replace placeholders with actual values (Firebase-related placeholders removed)
         dfd_editor_html_content = dfd_editor_html_template.replace(
             "{{THEME_PLACEHOLDER_BG}}", '#0f1a44' if st.session_state.theme == 'dark' else '#f8f9fa'
         ).replace(
@@ -807,19 +647,13 @@ elif option == "Create Model":
         ).replace(
             "{{THEME_PLACEHOLDER}}", st.session_state.theme
         ).replace(
-            "{{APP_ID_PLACEHOLDER}}", st.session_state.app_id
-        ).replace(
-            "{{FIREBASE_CONFIG_JSON_PLACEHOLDER}}", st.session_state.firebase_config_json
-        ).replace(
-            "{{INITIAL_AUTH_TOKEN_PLACEHOLDER}}", json.dumps(st.session_state.initial_auth_token)
-        ).replace(
             "{{DFD_ELEMENTS_PLACEHOLDER}}", json.dumps(st.session_state.dfd_elements)
         )
 
     except FileNotFoundError:
         st.error("Error: dfd_editor.html not found. Please ensure the file is in the project directory.")
         logger.error("dfd_editor.html not found")
-        dfd_editor_html_content = "" # Ensure it's empty
+        dfd_editor_html_content = ""
     except Exception as e:
         st.error(f"Error preparing DFD editor HTML: {e}")
         logger.error(f"Error preparing DFD editor HTML: {e}")
@@ -834,7 +668,7 @@ elif option == "Create Model":
             # DFD editor component
             dfd_data = components.html(dfd_editor_html_content, height=450, key="dfd_editor_component")
 
-    # Hidden text area to receive DFD data from JavaScript
+    # Hidden text area to receive DFD data from JavaScript (ONLY DFD data now)
     st.markdown(
         """
         <style>
@@ -849,7 +683,7 @@ elif option == "Create Model":
         "dfd_data_transfer",
         value=json.dumps({"elements": st.session_state.dfd_elements, "selected": None, "image": None}),
         height=68,
-        key="streamlit_dfd_data", # This key is used by JS to find the element
+        key="streamlit_dfd_data",
         help="Do not modify this field directly.",
     )
 
@@ -866,8 +700,6 @@ elif option == "Create Model":
             if received_dfd_data.get("image") and received_dfd_data["image"] != st.session_state.dfd_image:
                 try:
                     # DFD image is SVG base64, need to convert to PNG for PDF reportlab
-                    # This conversion is complex and best done with a dedicated library if not in browser
-                    # For now, we'll store the SVG base64 and handle conversion in PDF report if possible
                     st.session_state.dfd_image = base64.b64decode(received_dfd_data["image"].split(",")[1])
                 except Exception as e:
                     logger.error(f"Error decoding DFD image from JS: {e}")
@@ -992,18 +824,7 @@ elif option == "Create Model":
                     with col_reports[2]:
                         st.markdown(create_pdf_report(threat_model_name, architecture_description, st.session_state.dfd_elements, generated_threats, st.session_state.dfd_image, timestamp), unsafe_allow_html=True)
                     
-                    # Trigger save to Firestore
-                    if st.session_state.firebase_initialized and st.session_state.user_id:
-                        st.session_state.js_save_request = {
-                            "model_name": threat_model_name,
-                            "architecture": architecture_description,
-                            "dfd_elements": st.session_state.dfd_elements,
-                            "threats": generated_threats
-                        }
-                        st.info("Saving model to cloud...")
-                        logger.info(f"Save request queued for model: {threat_model_name}")
-                    else:
-                        st.warning("Not logged in. Model will not be saved to cloud. Please authenticate to enable persistence.")
+                    st.warning("Persistence features (saving/loading models) are disabled as Firebase integration has been removed.")
                 else:
                     st.info("No threats were generated based on your DFD and architecture description.")
 
@@ -1011,113 +832,7 @@ elif option == "Saved Models":
     st.markdown('<h2 style="color: #0f1a44;">Saved Threat Models</h2>', unsafe_allow_html=True)
     st.markdown('<div class="aws-divider"></div>', unsafe_allow_html=True)
 
-    if not st.session_state.firebase_initialized or not st.session_state.user_id:
-        st.info("Please log in or wait for authentication to view saved models.")
-    else:
-        # Hidden text area to receive loaded models data from JavaScript
-        st.markdown(
-            """
-            <style>
-            .stTextArea[data-testid="stTextArea-load-models"] {
-                display: none;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        load_models_data_transfer = st.text_area(
-            "load_models_data",
-            value=json.dumps([]), # Initial empty list
-            height=68,
-            key="streamlit_load_models_data", # This key is used by JS to send data
-            help="Do not modify this field directly.",
-        )
-
-        # Trigger JS to load models when this section is visible
-        if st.session_state.user_id and not st.session_state.js_load_request: # Only trigger if user is authenticated and not already requested
-            st.session_state.js_load_request = True
-            st.info("Loading saved models from cloud...")
-            logger.info("Load models request sent to JS.")
-            # Rerun is handled by the JS response updating load_models_data_transfer
-
-        saved_models_list = []
-        if load_models_data_transfer:
-            try:
-                loaded_models_raw = json.loads(load_models_data_transfer)
-                # Ensure dfd_elements and threats are parsed back from string
-                for m in loaded_models_raw:
-                    m['dfd_elements'] = json.loads(m.get('dfd_elements', '[]'))
-                    m['threats'] = json.loads(m.get('threats', '[]'))
-                    m['display_name'] = f"{m['model_name']} (Last Updated: {datetime.fromisoformat(m['last_updated']).strftime('%Y-%m-%d %H:%M')})"
-                saved_models_list = loaded_models_raw
-            except json.JSONDecodeError as e:
-                st.error(f"Error decoding loaded models data: {e}")
-                logger.error(f"JSONDecodeError loading models: {e}")
-            except Exception as e:
-                st.error(f"An unexpected error occurred while processing loaded models: {e}")
-                logger.error(f"Unexpected error processing loaded models: {e}")
-        
-        if saved_models_list:
-            selected_model_display_name = st.selectbox(
-                "Select a model to load or delete:",
-                ["-- Select a saved model --"] + [m['display_name'] for m in saved_models_list],
-                key="load_model_select"
-            )
-
-            if selected_model_display_name != "-- Select a saved model --":
-                selected_model_obj = next((m for m in saved_models_list if m['display_name'] == selected_model_display_name), None)
-                if selected_model_obj:
-                    st.markdown(f"#### Details for: {selected_model_obj['model_name']}")
-                    st.markdown(f"**Architecture**: {selected_model_obj['architecture']}")
-                    st.markdown(f"**Created At**: {datetime.fromisoformat(selected_model_obj['created_at']).strftime('%Y-%m-%d %H:%M:%S')}")
-                    st.markdown(f"**Last Updated**: {datetime.fromisoformat(selected_model_obj['last_updated']).strftime('%Y-%m-%d %H:%M:%S')}")
-
-                    st.markdown("<p><strong>DFD Elements</strong>:</p>", unsafe_allow_html=True)
-                    dfd_table_data_loaded = []
-                    for elem in selected_model_obj['dfd_elements']:
-                        row = {"Type": elem["type"], "Name": elem["name"], "Technology": elem.get("technology", "")}
-                        if elem["type"] == "Data Flow":
-                            source_name = next((e['name'] for e in selected_model_obj['dfd_elements'] if e['id'] == elem['source']), 'N/A')
-                            target_name = next((e['name'] for e in selected_model_obj['dfd_elements'] if e['id'] == elem['target']), 'N/A')
-                            row["Data Flow"] = f"{source_name} -> {target_name} ({elem.get('data_flow', '')})"
-                        else:
-                            row["Data Flow"] = ""
-                        dfd_table_data_loaded.append(row)
-                    st.table(pd.DataFrame(dfd_table_data_loaded))
-
-                    st.markdown("<p><strong>Threats</strong>:</p>", unsafe_allow_html=True)
-                    st.table(pd.DataFrame([
-                        {k: v for k, v in threat.items() if k in ["threat", "vulnerability", "risk", "mitigation", "compliance", "example"]}
-                        for threat in selected_model_obj['threats']
-                    ]))
-                    st.plotly_chart(create_risk_chart(selected_model_obj['threats'], datetime.now().timestamp()))
-
-                    col_load_buttons = st.columns(2)
-                    with col_load_buttons[0]:
-                        if st.button(f"📥 Load '{selected_model_obj['model_name']}' into editor"):
-                            st.session_state.dfd_elements = selected_model_obj['dfd_elements']
-                            # Note: dfd_image cannot be directly loaded back from Firestore as it's a snapshot
-                            st.session_state.dfd_image = None # Clear existing image
-                            st.session_state.threat_model = {
-                                "name": selected_model_obj['model_name'],
-                                "architecture": selected_model_obj['architecture'],
-                                "dfd_elements": selected_model_obj['dfd_elements'],
-                                "threats": selected_model_obj['threats']
-                            }
-                            st.success(f"Model '{selected_model_obj['model_name']}' loaded successfully into 'Create Model' section!")
-                            logger.info(f"Model loaded: {selected_model_obj['model_name']}")
-                            st.rerun()
-                    with col_load_buttons[1]:
-                        if st.button(f"🗑️ Delete '{selected_model_obj['model_name']}'", key=f"delete_model_{selected_model_obj['id']}"):
-                            st.session_state.js_delete_request = selected_model_obj['id']
-                            st.info(f"Request to delete '{selected_model_obj['model_name']}' sent.")
-                            logger.info(f"Delete request queued for model: {selected_model_obj['id']}")
-                            # Rerun will be triggered by JS command output
-
-                else:
-                    st.error("Selected model not found.")
-        else:
-            st.info("No saved models found for this user. Create and save a model first!")
+    st.info("Persistence features (saving/loading models) are disabled as Firebase integration has been removed. No saved models can be displayed.")
     
 elif option == "Quiz":
     show_quiz()
@@ -1128,7 +843,5 @@ elif option == "Manage Users (Admin Only)":
     if st.session_state.role == "admin":
         st.info("This section is for managing users and roles in a full commercial deployment. Features like user creation, role assignment, and audit logs would be here.")
         st.write(f"Current User ID: `{st.session_state.user_id}`")
-        # Placeholder for future admin features
-        st.warning("User management features are not yet implemented in this demo.")
     else:
         st.warning("You do not have permission to access this section.")
