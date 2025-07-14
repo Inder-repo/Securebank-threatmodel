@@ -14,6 +14,7 @@ import plotly.express as px
 import csv
 import streamlit.components.v1 as components
 import os
+import pandas as pd # Added: Import pandas for DataFrame functionality
 
 # Configure logging
 logging.basicConfig(filename="threat_modeling_app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -24,7 +25,7 @@ if "role" not in st.session_state:
     st.session_state.role = "admin"
 if "dfd_elements" not in st.session_state:
     st.session_state.dfd_elements = []
-if "dfd_image" not in st.session_state:
+if "dfd_image" not in st.session_session_state:
     st.session_state.dfd_image = None
 if "theme" not in st.session_state:
     st.session_state.theme = "light"
