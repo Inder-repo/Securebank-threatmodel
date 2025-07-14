@@ -779,6 +779,7 @@ elif option == "Create Model":
 
     # DFD editor HTML content
     # Read the HTML file and replace placeholders
+    dfd_editor_html_content = "" # Initialize to empty string
     try:
         with open("dfd_editor.html", "r") as f:
             dfd_editor_html_template = f.read()
@@ -803,7 +804,7 @@ elif option == "Create Model":
     except FileNotFoundError:
         st.error("Error: dfd_editor.html not found. Please ensure the file is in the project directory.")
         logger.error("dfd_editor.html not found")
-        dfd_editor_html_content = "" # Set to empty to avoid further errors
+        dfd_editor_html_content = "" # Ensure it's empty
     except Exception as e:
         st.error(f"Error preparing DFD editor HTML: {e}")
         logger.error(f"Error preparing DFD editor HTML: {e}")
@@ -812,8 +813,11 @@ elif option == "Create Model":
 
     col1, col2 = st.columns([3, 2])
     with col1:
-        # DFD editor component
-        dfd_data = components.html(dfd_editor_html_content, height=450, key="dfd_editor_component")
+        if not dfd_editor_html_content:
+            st.warning("DFD editor content is empty. Please check for errors in dfd_editor.html or its loading process.")
+        else:
+            # DFD editor component
+            dfd_data = components.html(dfd_editor_html_content, height=450, key="dfd_editor_component")
 
     # Hidden text area to receive DFD data from JavaScript
     st.markdown(
